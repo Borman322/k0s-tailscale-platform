@@ -1,0 +1,35 @@
+---
+# Dumps the jobmon database (pg_dump -Fc) into ./backups/ on this machine.
+# Run: ansible-playbook backup.yml   (or `make backup`)
+
+- name: Back up the jobmon database
+  hosts: first_controller
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Pick the dump name
+      ansible.builtin.set_fact:
+        _backup_name: "jobmon-{{ lookup('pipe', 'date -u +%Y%m%dT%H%M%SZ') }}.dump"
+
+    - name: Dump Postgres
+      ansible.builtin.shell: >-
+        set -o pipefail;
+        k0s kubectl -n jobmon exec db-0 -- pg_dump -U jobs -d jobs -Fc > /root/{{ _backup_name }}
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Fetch the dump
+      ansible.builtin.fetch:
+        src: /root/{{ _backup_name }}
+        dest: "{{ playbook_dir }}/backups/"
+        flat: true
+
+    - name: Remove the dump from the controller
+      ansible.builtin.file:
+        path: /root/{{ _backup_name }}
+        state: absent
+
+    - name: Show where it is
+      ansible.builtin.debug:
+        msg: "backups/{{ _backup_name }}"

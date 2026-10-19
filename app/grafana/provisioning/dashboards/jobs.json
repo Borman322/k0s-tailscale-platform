@@ -1,0 +1,101 @@
+{
+  "uid": "job-board",
+  "title": "Поиск работы",
+  "tags": ["jobs"],
+  "timezone": "browser",
+  "refresh": "5m",
+  "time": {"from": "now-30d", "to": "now"},
+  "panels": [
+    {
+      "type": "stat", "title": "Новых за 7 дней", "id": 1,
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "datasource": {"type": "postgres", "uid": "jobsdb"},
+      "targets": [{"format": "table", "rawQuery": true,
+        "rawSql": "SELECT count(*) AS value FROM jobs WHERE first_seen > now() - interval '7 days'"}],
+      "options": {"colorMode": "value", "graphMode": "none"},
+      "fieldConfig": {"defaults": {"color": {"mode": "fixed", "fixedColor": "green"}}}
+    },
+    {
+      "type": "stat", "title": "Открытых сейчас", "id": 2,
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "datasource": {"type": "postgres", "uid": "jobsdb"},
+      "targets": [{"format": "table", "rawQuery": true,
+        "rawSql": "SELECT count(*) AS value FROM jobs WHERE is_open"}],
+      "options": {"colorMode": "value", "graphMode": "none"}
+    },
+    {
+      "type": "stat", "title": "Без ограничений по региону", "id": 3,
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+      "datasource": {"type": "postgres", "uid": "jobsdb"},
+      "targets": [{"format": "table", "rawQuery": true,
+        "rawSql": "SELECT count(*) AS value FROM jobs WHERE is_open AND region_lock IN ('none','unknown')"}],
+      "options": {"colorMode": "value", "graphMode": "none"},
+      "fieldConfig": {"defaults": {"color": {"mode": "fixed", "fixedColor": "blue"}}}
+    },
+    {
+      "type": "stat", "title": "Подано откликов", "id": 4,
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+      "datasource": {"type": "postgres", "uid": "jobsdb"},
+      "targets": [{"format": "table", "rawQuery": true,
+        "rawSql": "SELECT count(*) AS value FROM pipeline WHERE status IN ('applied','screening','interview','offer')"}],
+      "options": {"colorMode": "value", "graphMode": "none"}
+    },
+    {
+      "type": "table", "title": "Вакансии — по релевантности", "id": 5,
+      "gridPos": {"h": 13, "w": 24, "x": 0, "y": 4},
+      "datasource": {"type": "postgres", "uid": "jobsdb"},
+      "targets": [{"format": "table", "rawQuery": true,
+        "rawSql": "SELECT score AS \"Балл\", company AS \"Компания\", title AS \"Роль\", location AS \"Локация\", region_lock AS \"Регион\", blockers AS \"Блокеры\", matched AS \"Совпало\", status AS \"Статус\", first_seen AS \"Найдено\", url FROM v_board WHERE is_open ORDER BY score DESC, first_seen DESC LIMIT 200"}],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "Роль"},
+           "properties": [{"id": "links", "value": [{"title": "Открыть вакансию", "url": "${__data.fields.url}", "targetBlank": true}]}]},
+          {"matcher": {"id": "byName", "options": "url"},
+           "properties": [{"id": "custom.hidden", "value": true}]},
+          {"matcher": {"id": "byName", "options": "Балл"},
+           "properties": [{"id": "custom.width", "value": 70},
+                          {"id": "custom.cellOptions", "value": {"type": "color-background"}},
+                          {"id": "color", "value": {"mode": "continuous-GrYlRd"}}]},
+          {"matcher": {"id": "byName", "options": "Регион"},
+           "properties": [{"id": "mappings", "value": [{"type": "value", "options": {
+              "none": {"text": "свободно", "color": "green", "index": 0},
+              "unknown": {"text": "уточнить", "color": "yellow", "index": 1},
+              "eu": {"text": "только ЕС", "color": "orange", "index": 2},
+              "us": {"text": "только США", "color": "red", "index": 3}}}]},
+            {"id": "custom.cellOptions", "value": {"type": "color-text"}}]}
+        ]
+      },
+      "options": {"sortBy": [{"displayName": "Балл", "desc": true}], "footer": {"show": false}}
+    },
+    {
+      "type": "table", "title": "Воронка", "id": 6,
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 17},
+      "datasource": {"type": "postgres", "uid": "jobsdb"},
+      "targets": [{"format": "table", "rawQuery": true,
+        "rawSql": "SELECT status AS \"Статус\", company AS \"Компания\", title AS \"Роль\", note AS \"Заметка\", url FROM v_board WHERE status <> 'new' ORDER BY CASE status WHEN 'offer' THEN 1 WHEN 'interview' THEN 2 WHEN 'screening' THEN 3 WHEN 'applied' THEN 4 WHEN 'interested' THEN 5 ELSE 9 END"}],
+      "fieldConfig": {"defaults": {}, "overrides": [
+        {"matcher": {"id": "byName", "options": "Роль"},
+         "properties": [{"id": "links", "value": [{"title": "Открыть", "url": "${__data.fields.url}", "targetBlank": true}]}]},
+        {"matcher": {"id": "byName", "options": "url"},
+         "properties": [{"id": "custom.hidden", "value": true}]}]}
+    },
+    {
+      "type": "timeseries", "title": "Находки по дням", "id": 7,
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 17},
+      "datasource": {"type": "postgres", "uid": "jobsdb"},
+      "targets": [{"format": "time_series", "rawQuery": true,
+        "rawSql": "SELECT date_trunc('day', first_seen) AS time, count(*) AS \"новых вакансий\" FROM jobs WHERE $__timeFilter(first_seen) GROUP BY 1 ORDER BY 1"}],
+      "fieldConfig": {"defaults": {"custom": {"drawStyle": "bars", "fillOpacity": 60}}}
+    },
+    {
+      "type": "table", "title": "Последние проходы сборщика", "id": 8,
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 26},
+      "datasource": {"type": "postgres", "uid": "jobsdb"},
+      "targets": [{"format": "table", "rawQuery": true,
+        "rawSql": "SELECT started_at AS \"Время\", company AS \"Компания\", source AS \"Система\", fetched AS \"Получено\", inserted AS \"Подошло\", error AS \"Ошибка\" FROM runs ORDER BY started_at DESC LIMIT 60"}]
+    }
+  ],
+  "schemaVersion": 39,
+  "version": 1
+}

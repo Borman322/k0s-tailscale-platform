@@ -1,0 +1,13 @@
+# Не попадает ни в контекст сборки, ни в образ: копии оригиналов, кэш и отчёты (создаются при работе), мусор Python/macOS
+.orig/
+.probe_cache.json
+.probe_cache.json.tmp
+discover_report.md
+companies.generated.yml
+__pycache__/
+*.pyc
+.git/
+.DS_Store
+Dockerfile
+.dockerignore
+schema.sql

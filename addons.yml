@@ -1,0 +1,13 @@
+---
+# Cluster add-ons: local-path storage and, if an OAuth client is set in
+# vars/secrets.yml, the Tailscale Kubernetes operator.
+# Run: ansible-playbook addons.yml   (or `make addons`)
+
+- name: Install cluster add-ons
+  hosts: first_controller
+  become: true
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yml
+  roles:
+    - cluster_addons

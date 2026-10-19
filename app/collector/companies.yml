@@ -1,0 +1,31 @@
+# Компании и их идентификатор в системе найма: name, slug, ats (greenhouse, ashby, lever, workable, …).
+# Если система неизвестна — ставь `ats: probe`: сборщик определит её сам (или запусти discover.py).
+# Секции «── … ──» собирает discover.py: записи сохраняются, комментарии внутри секций — нет.
+# Это пример: замените на компании, которые интересны вам.
+companies:
+
+# ── Инфраструктура и облака ──
+  - {name: Cloudflare,   slug: cloudflare,     ats: greenhouse}
+  - {name: DigitalOcean, slug: digitalocean98, ats: greenhouse}
+  - {name: Fastly,       slug: fastly,         ats: greenhouse}
+  - {name: Tailscale,    slug: tailscale,      ats: greenhouse}
+
+# ── Инструменты для разработчиков ──
+  - {name: GitLab,       slug: gitlab,         ats: greenhouse}
+  - {name: Datadog,      slug: datadog,        ats: greenhouse}
+  - {name: Grafana Labs, slug: grafanalabs,    ats: greenhouse}
+  - {name: PostHog,      slug: posthog,        ats: ashby}
+  - {name: Supabase,     slug: supabase,       ats: ashby}
+
+# ── Открытый софт ──
+  - {name: Canonical,    slug: canonical,      ats: greenhouse}
+  - {name: Mozilla,      slug: mozilla,        ats: greenhouse}
+
+boards:
+  # общие доски удалёнки; фильтр по домену из profile.yml (gate) у них включён по умолчанию
+  himalayas:      {enabled: true, pages: 2, queries: [devops engineer, site reliability engineer, platform engineer]}
+  jobicy:         {enabled: true, queries: [{industry: admin}, {industry: engineering, tag: devops}]}
+  remoteok:       {enabled: true, tags: [devops, sysadmin]}
+  weworkremotely: {enabled: true, feeds: [remote-devops-sysadmin-jobs]}
+  arbeitnow:      {enabled: true, pages: 3}
+  hn_hiring:      {enabled: true, months: 1}                # «Ask HN: Who is hiring?»

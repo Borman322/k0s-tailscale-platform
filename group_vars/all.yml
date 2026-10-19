@@ -1,0 +1,30 @@
+---
+# Cluster-wide settings shared by several roles.
+k0s_version: "v1.35.3+k0s.0"   # workers take the controller's actual version, see workers.yml
+k0s_pod_cidr: 10.244.0.0/16
+k0s_service_cidr: 10.96.0.0/12
+
+# Kubelet must advertise the tailnet address. Swap stays on for the 2 GB droplets,
+# and kubelet refuses to start on a swap-enabled host unless told otherwise.
+k0s_kubelet_extra_args: "--node-ip={{ tailscale_ip }} --fail-swap-on=false"
+
+ufw_trusted_cidrs:
+  - "{{ k0s_pod_cidr }}"
+  - "{{ k0s_service_cidr }}"
+
+# Public keys added for ansible_user on every host, e.g. the deploy key used by
+# the GitHub "deploy" workflow.
+base_ssh_authorized_keys: []
+
+# ── add-ons ──
+tailscale_operator_version: "1.104.1"
+
+# ── jobmon ──
+# MagicDNS suffix of your tailnet: admin console → DNS (e.g. tail1234.ts.net).
+tailnet_domain: ""
+# Grafana ends up at https://<jobmon_grafana_host>.<tailnet_domain>
+jobmon_grafana_host: grafana
+# Collector image with an explicit tag: ghcr.io/<owner>/<repo>-collector:sha-<short commit>,
+# printed in the run summary of the collector-image workflow. If the package is private,
+# set ghcr_pull_user / ghcr_pull_token (read:packages) in vars/secrets.yml.
+jobmon_collector_image: ""

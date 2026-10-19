@@ -1,0 +1,14 @@
+apiVersion: 1
+datasources:
+  - name: jobs
+    type: postgres
+    uid: jobsdb
+    url: db:5432
+    database: jobs
+    user: jobs
+    isDefault: true
+    jsonData:
+      sslmode: disable
+      postgresVersion: 1600
+    secureJsonData:
+      password: ${PG_PASSWORD}

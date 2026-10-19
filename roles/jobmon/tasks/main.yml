@@ -1,0 +1,69 @@
+---
+# Deploys app/ (kustomize base) plus an overlay with this installation's values.
+# Runs on the controller: kubectl only works there.
+
+- name: Check the jobmon settings
+  ansible.builtin.assert:
+    that:
+      - jobmon_db_password | default('') is match('^[A-Za-z0-9]+$')
+      - jobmon_grafana_password | default('') | length > 0
+      - tailnet_domain | default('') | length > 0
+      - jobmon_collector_image | default('') is search(':[^/]+$')
+    fail_msg: >-
+      Set jobmon_db_password (letters and digits only, it goes into a DSN) and
+      jobmon_grafana_password in vars/secrets.yml; tailnet_domain and
+      jobmon_collector_image (with a tag) in group_vars/all.yml.
+    quiet: true
+
+- name: Create the deploy directories
+  ansible.builtin.file:
+    path: "{{ jobmon_deploy_dir }}/{{ item }}"
+    state: directory
+    mode: '0700'
+  loop:
+    - base
+    - overlay
+
+# Only what kustomize reads; the collector source ships as an image.
+- name: Copy the jobmon base
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/app/{{ item }}"
+    dest: "{{ jobmon_deploy_dir }}/base/"
+    mode: u=rwX,go=
+  loop:
+    - kustomization.yaml
+    - k8s
+    - db
+    - grafana
+
+- name: Render the overlay for this installation
+  ansible.builtin.template:
+    src: kustomization.yaml.j2
+    dest: "{{ jobmon_deploy_dir }}/overlay/kustomization.yaml"
+    mode: '0600'
+  no_log: true
+
+# `apply` alone cannot tell: it reports the StatefulSet as "configured" on every
+# run (a no-op patch around volumeClaimTemplates). `diff` exits 0 when nothing
+# would change, 1 when something would; Secret values show up masked.
+- name: Compare with what runs in the cluster
+  ansible.builtin.command: k0s kubectl diff -k {{ jobmon_deploy_dir }}/overlay
+  register: _jobmon_diff
+  failed_when: _jobmon_diff.rc > 1
+  changed_when: false
+
+- name: Apply jobmon
+  ansible.builtin.command: k0s kubectl apply -k {{ jobmon_deploy_dir }}/overlay
+  when: _jobmon_diff.rc == 1
+  changed_when: true
+
+- name: Wait for Postgres and Grafana
+  ansible.builtin.command: k0s kubectl -n jobmon rollout status {{ item }} --timeout=300s
+  loop:
+    - statefulset/db
+    - deployment/grafana
+  changed_when: false
+
+- name: Show where Grafana is
+  ansible.builtin.debug:
+    msg: "Grafana: https://{{ jobmon_grafana_host }}.{{ tailnet_domain }} (reachable from the tailnet only)"

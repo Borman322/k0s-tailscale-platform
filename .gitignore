@@ -1,0 +1,17 @@
+# Local, per-installation files: created by `make init`, never committed.
+vars/secrets.yml
+inventory.ini
+app/.env
+
+# Database dumps from `make backup`
+backups/
+
+*.retry
+.DS_Store
+
+# Python bytecode and what the collector writes when run locally
+__pycache__/
+*.pyc
+app/collector/.probe_cache.json
+app/collector/discover_report.md
+app/collector/companies.generated.yml

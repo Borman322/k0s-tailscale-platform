@@ -1,0 +1,6 @@
+---
+base_dns_servers: [8.8.8.8, 1.1.1.1]   # empty list leaves the resolver untouched
+# Small droplets need swap: 2 GB of RAM gets OOM-killed on the first image build.
+base_disable_swap: false
+# Off by default: locks out password logins, enable deliberately.
+base_harden_ssh: false

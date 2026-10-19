@@ -1,0 +1,70 @@
+---
+# Brings up the single k0s controller. By default it is listed in `kubectl get nodes`
+# as control-plane, and its NoSchedule taint keeps workloads on the workers.
+# Modes: roles/k0s_controller/defaults/main.yml.
+# Run: ansible-playbook controller.yml
+
+- name: Set up the k0s control plane
+  hosts: first_controller
+  become: true
+  vars_files:
+    - vars/secrets.yml
+  roles:
+    - base
+    - tailscale
+    - ufw
+    - k0s_controller
+  post_tasks:
+    # Only a controller that runs a kubelet registers as a node.
+    - name: Check the controller node
+      when: k0s_controller_enable_worker | default(true) | bool
+      block:
+        - name: Wait until the controller node is Ready
+          ansible.builtin.command:
+            argv:
+              - k0s
+              - kubectl
+              - get
+              - node
+              - "{{ ansible_facts['nodename'] | lower }}"
+              - -o
+              - 'jsonpath={.status.conditions[?(@.type=="Ready")].status}'
+          register: _node_ready
+          changed_when: false
+          until: _node_ready.stdout == 'True'
+          retries: 30
+          delay: 10
+
+        # k0s adds the control-plane label only after a while; set it right away. The
+        # worker role only when the controller actually takes workloads.
+        - name: Label the node with its roles
+          ansible.builtin.command:
+            argv: >-
+              {{ ['k0s', 'kubectl', 'label', 'node', ansible_facts['nodename'] | lower,
+                  'node-role.kubernetes.io/control-plane=true', '--overwrite']
+                 + (['node-role.kubernetes.io/worker=worker']
+                    if k0s_controller_no_taints | default(false) | bool else []) }}
+          register: _node_label
+          changed_when: "'not labeled' not in _node_label.stdout"
+
+        # Node Ready only proves kubelet -> API; system pods prove the pod network.
+        # Retried: right after Ready the DaemonSet pods may not exist yet, and
+        # `kubectl wait` then fails at once with "no matching resources found".
+        - name: Wait until system pods on the node are Ready
+          ansible.builtin.command:
+            argv:
+              - k0s
+              - kubectl
+              - -n
+              - kube-system
+              - wait
+              - pod
+              - --all
+              - --for=condition=Ready
+              - --field-selector=spec.nodeName={{ ansible_facts['nodename'] | lower }}
+              - --timeout=60s
+          register: _node_pods
+          changed_when: false
+          until: _node_pods.rc == 0
+          retries: 10
+          delay: 10

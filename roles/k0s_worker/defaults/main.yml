@@ -1,0 +1,2 @@
+---
+k0s_worker_token: ""   # workers.yml takes a fresh one from the controller

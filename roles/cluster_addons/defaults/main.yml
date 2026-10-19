@@ -1,0 +1,3 @@
+---
+cluster_addons_dir: /root/cluster-addons
+tailscale_operator_version: "1.104.1"

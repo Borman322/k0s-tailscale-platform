@@ -1,0 +1,73 @@
+---
+- name: Install ufw
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+
+# Rules first, default deny and enable last, so the SSH session is never cut off.
+- name: Allow SSH
+  community.general.ufw:
+    rule: allow
+    port: "{{ ufw_ssh_port | string }}"
+    proto: tcp
+    from_ip: "{{ item }}"
+  loop: "{{ ufw_ssh_from | default(['any'], true) }}"
+
+- name: Allow Tailscale direct connections
+  community.general.ufw:
+    rule: allow
+    port: "{{ ufw_tailscale_udp_port | string }}"
+    proto: udp
+
+- name: Allow everything arriving over the tailnet
+  community.general.ufw:
+    rule: allow
+    interface_in: "{{ ufw_tailscale_iface }}"
+
+- name: Allow forwarding of traffic arriving over the tailnet
+  community.general.ufw:
+    rule: allow
+    route: true
+    interface_in: "{{ ufw_tailscale_iface }}"
+
+- name: Allow pod and service networks to reach the host
+  community.general.ufw:
+    rule: allow
+    from_ip: "{{ item }}"
+  loop: "{{ ufw_trusted_cidrs }}"
+
+- name: Allow forwarding of pod and service traffic
+  community.general.ufw:
+    rule: allow
+    route: true
+    from_ip: "{{ item }}"
+  loop: "{{ ufw_trusted_cidrs }}"
+
+- name: Allow extra ports
+  community.general.ufw:
+    rule: allow
+    port: "{{ item.port | string }}"
+    proto: "{{ item.proto | default('any') }}"
+  loop: "{{ ufw_extra_rules }}"
+
+- name: Set default policies
+  community.general.ufw:
+    direction: "{{ item.direction }}"
+    default: "{{ item.policy }}"
+  loop:
+    - {direction: incoming, policy: deny}
+    - {direction: outgoing, policy: allow}
+    - {direction: routed, policy: deny}
+
+- name: Enable ufw
+  community.general.ufw:
+    state: enabled
+
+- name: Read resulting rules
+  ansible.builtin.command: ufw status verbose
+  register: _ufw_status
+  changed_when: false
+
+- name: Report
+  ansible.builtin.debug:
+    var: _ufw_status.stdout_lines

@@ -1,0 +1,33 @@
+apiVersion: k0s.k0sproject.io/v1beta1
+kind: ClusterConfig
+metadata:
+  name: k0s
+  namespace: kube-system
+spec:
+  api:
+    address: {{ tailscale_ip }}
+    sans:
+      - {{ tailscale_ip }}
+      - {{ ansible_facts['default_ipv4']['address'] }}
+    k0sApiPort: 9443
+    port: 6443
+  # Calico VXLAN, same as the production clusters. Tailscale only carries
+  # TCP/UDP/ICMP, so kube-router's IPIP tunnel (IP protocol 4) gets dropped
+  # ("unknown-protocol-4"), while VXLAN is plain UDP.
+  network:
+    podCIDR: {{ k0s_pod_cidr }}
+    serviceCIDR: {{ k0s_service_cidr }}
+    provider: calico
+    calico:
+      mode: vxlan
+      mtu: 1230                 # tailscale0 is 1280, VXLAN adds 50
+      envVars:
+        IP_AUTODETECTION_METHOD: "interface={{ ufw_tailscale_iface | default('tailscale0') }}"
+        # Keep Felix off the 0xff0000 fwmark bits that Tailscale uses.
+        FELIX_IPTABLESMARKMASK: "0xff00ff00"
+  storage:
+    type: etcd
+    etcd:
+      peerAddress: {{ tailscale_ip }}
+  telemetry:
+    enabled: false

@@ -1,0 +1,18 @@
+---
+- name: Check for an existing k0s binary
+  ansible.builtin.stat:
+    path: /usr/local/bin/k0s
+  register: _k0s_binary
+
+# Fresh installs only: replacing the binary under a running node is an upgrade,
+# which is a separate procedure.
+- name: Download k0s {{ k0s_version }}
+  ansible.builtin.get_url:
+    url: "{{ _k0s_release_url }}/k0s-{{ k0s_version }}-{{ _k0s_arch }}"
+    checksum: "sha256:{{ _k0s_release_url }}/sha256sums.txt"
+    dest: /usr/local/bin/k0s
+    mode: '0755'
+  vars:
+    _k0s_release_url: "https://github.com/k0sproject/k0s/releases/download/{{ k0s_version }}"
+    _k0s_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64', 'armv7l': 'arm'}[ansible_facts['architecture']] }}"
+  when: not _k0s_binary.stat.exists

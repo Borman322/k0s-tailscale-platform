@@ -1,0 +1,51 @@
+# Профиль поиска: что считать подходящей вакансией. Это пример (SRE / Platform / DevOps) —
+# замените на свой. Файл вшивается в образ; другой профиль без пересборки — переменная PROFILE.
+
+min_score: 20          # ниже — вакансия не сохраняется
+
+# Ключевые слова ищутся целыми словами (с окончаниями -s/-es) в заголовке, тексте и локации.
+keywords:
+  strong:              # прямо ваша специализация
+    site reliability: 15
+    platform engineering: 15
+    kubernetes: 12
+    infrastructure as code: 10
+    terraform: 10
+    observability: 8
+  normal:              # общий стек
+    ansible: 6
+    helm: 6
+    argocd: 6
+    gitops: 6
+    prometheus: 5
+    grafana: 4
+    docker: 4
+    linux: 4
+    aws: 4
+    gcp: 4
+    on-call: 3
+
+# Заголовок подходит, если совпал include и не совпал exclude. Регулярные выражения, регистр не важен.
+title:
+  include:
+    - site reliability
+    - \bsre\b
+    - devops|devsecops
+    - infrastructure|\binfra\b
+    - platform
+    - systems? (engineer|administrator)
+    - production engineer|reliability
+    - cloud engineer
+    - kubernetes|observability
+  exclude:
+    - frontend|front-end|designer|marketing|sales|recruiter|analyst
+    - \binterns?\b|internship|\bjunior\b|\bjr\.?\b
+    - manager of|head of|director
+    - account (executive|manager)|customer (success|support)|product manager
+    - legal|counsel|accountant
+    - \b(?:java|python|golang|react|backend|back-end|full[- ]?stack|mobile|ios|android|php|ruby|node\.?js|typescript|javascript)\s+developer\b
+
+# Домен: на широких досках (gate) остаются только вакансии, где встречается одно из этих слов,
+# и discover.py по ним отличает нужную компанию от тёзки. Пусто — фильтра по домену нет,
+# компанию подтверждает только совпадение имени борды. Пример: [fintech, payments, banking]
+domain: []

@@ -1,0 +1,6 @@
+---
+tailscale_authkey: ""                 # comes from vars/secrets.yml
+tailscale_version: ""                 # pin, e.g. "1.98.2"; empty = latest
+tailscale_hostname: "{{ inventory_hostname }}"
+tailscale_tags: []                    # only for untagged keys, e.g. ["tag:k8s-nodes"]
+tailscale_up_extra_args: []           # e.g. ["--accept-dns=false"]

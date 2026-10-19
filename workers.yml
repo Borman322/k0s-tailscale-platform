@@ -1,0 +1,96 @@
+---
+# Joins new_workers to the cluster: base setup -> Tailscale -> ufw -> k0s worker -> Ready.
+# Run: ansible-playbook workers.yml   (or `make workers`)
+# With --limit, keep the controller in: --limit 'first_controller,worker-02'
+
+- name: Read the cluster version and issue a join token
+  hosts: first_controller
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    # Workers must run the same k0s release as the control plane.
+    - name: Read k0s version on the controller
+      ansible.builtin.command: k0s version
+      register: _k0s_controller_version
+      changed_when: false
+
+    # Bootstrap tokens are reusable until they expire, so one serves the whole batch.
+    - name: Create a short-lived worker join token
+      ansible.builtin.command: k0s token create --role=worker --expiry=1h
+      register: _k0s_join_token
+      changed_when: false
+      no_log: true
+
+- name: Prepare new workers and join them to the cluster
+  hosts: new_workers
+  become: true
+  vars_files:
+    - vars/secrets.yml
+  pre_tasks:
+    - name: Take k0s version and join token from the controller
+      ansible.builtin.set_fact:
+        k0s_version: "{{ hostvars[groups['first_controller'][0]]._k0s_controller_version.stdout | trim }}"
+        k0s_worker_token: "{{ hostvars[groups['first_controller'][0]]._k0s_join_token.stdout }}"
+      no_log: true
+  roles:
+    - base
+    - tailscale
+    - ufw
+    - k0s_worker
+  post_tasks:
+    - name: Wait until the node is Ready in the cluster
+      ansible.builtin.command:
+        argv:
+          - k0s
+          - kubectl
+          - get
+          - node
+          - "{{ ansible_facts['nodename'] | lower }}"
+          - -o
+          - 'jsonpath={.status.conditions[?(@.type=="Ready")].status}'
+      delegate_to: "{{ groups['first_controller'][0] }}"
+      register: _node_ready
+      changed_when: false
+      until: _node_ready.stdout == 'True'
+      retries: 30
+      delay: 10
+
+    # Fills the ROLES column. Kubelet may not set node-role.kubernetes.io/* on
+    # itself (NodeRestriction), so the controller does it.
+    - name: Label the node as a worker
+      ansible.builtin.command:
+        argv:
+          - k0s
+          - kubectl
+          - label
+          - node
+          - "{{ ansible_facts['nodename'] | lower }}"
+          - node-role.kubernetes.io/worker=worker
+          - --overwrite
+      delegate_to: "{{ groups['first_controller'][0] }}"
+      register: _node_label
+      changed_when: "'not labeled' not in _node_label.stdout"
+
+    # Node Ready only proves kubelet -> API; system pods on the node (calico,
+    # konnectivity) prove the pod network across the tailnet. Retried: right after
+    # Ready the DaemonSet pods may not exist yet ("no matching resources found").
+    - name: Wait until system pods on the node are Ready
+      ansible.builtin.command:
+        argv:
+          - k0s
+          - kubectl
+          - -n
+          - kube-system
+          - wait
+          - pod
+          - --all
+          - --for=condition=Ready
+          - --field-selector=spec.nodeName={{ ansible_facts['nodename'] | lower }}
+          - --timeout=60s
+      delegate_to: "{{ groups['first_controller'][0] }}"
+      register: _node_pods
+      changed_when: false
+      until: _node_pods.rc == 0
+      retries: 10
+      delay: 10

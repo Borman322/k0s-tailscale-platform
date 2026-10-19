@@ -1,0 +1,59 @@
+---
+- name: Check inputs from earlier steps
+  ansible.builtin.assert:
+    that:
+      - tailscale_ip | default('') | length > 0
+      - k0s_worker_token | length > 0
+    fail_msg: Needs tailscale_ip (tailscale role) and k0s_worker_token (taken from the controller in workers.yml)
+    quiet: true
+
+# The kubelet kubeconfig appears only after a successful join. A k0sworker unit
+# without it (left by an aborted attempt) gets reinstalled with a fresh token.
+- name: Check whether this host has already joined the cluster
+  ansible.builtin.stat:
+    path: /var/lib/k0s/kubelet.conf
+  register: _k0s_joined
+
+- name: Join the cluster
+  when: not _k0s_joined.stat.exists
+  block:
+    - name: Create k0s config directory
+      ansible.builtin.file:
+        path: /etc/k0s
+        state: directory
+        mode: '0755'
+
+    - name: Write the join token
+      ansible.builtin.copy:
+        content: "{{ k0s_worker_token }}"
+        dest: /etc/k0s/worker-token
+        mode: '0600'
+      no_log: true
+
+    - name: Install the k0s worker service
+      ansible.builtin.command:
+        argv:
+          - k0s
+          - install
+          - worker
+          - --force
+          - --token-file=/etc/k0s/worker-token
+          - --kubelet-extra-args={{ k0s_kubelet_extra_args }}
+
+    - name: Start the k0s worker
+      ansible.builtin.systemd:
+        name: k0sworker
+        state: restarted
+        enabled: true
+        daemon_reload: true
+
+- name: Keep the k0s worker running
+  ansible.builtin.systemd:
+    name: k0sworker
+    state: started
+    enabled: true
+
+- name: Wait for the k0s worker to come up
+  ansible.builtin.wait_for:
+    path: /run/k0s/status.sock
+    timeout: 120

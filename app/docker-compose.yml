@@ -1,0 +1,57 @@
+# jobmon на одном хосте без Kubernetes: `docker compose up -d --build` в этом каталоге.
+# Пароли — в .env (`make init` создаёт его из .env.example).
+services:
+  db:
+    image: postgres:16.15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: jobs
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?задай DB_PASSWORD в .env}
+      POSTGRES_DB: jobs
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/10-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jobs -d jobs"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # наружу не публикуем вообще
+
+  collector:
+    build: ./collector
+    restart: unless-stopped
+    depends_on:
+      db: {condition: service_healthy}
+    environment:
+      DB_DSN: postgresql://jobs:${DB_PASSWORD}@db:5432/jobs
+      INTERVAL_SECONDS: "${INTERVAL_SECONDS:-21600}"   # каждые 6 часов
+    command: >
+      sh -c 'while true; do
+               echo "=== проход $$(date -u +%FT%TZ) ===";
+               python /app/collector.py || echo "проход завершился ошибкой";
+               sleep $$INTERVAL_SECONDS;
+             done'
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    restart: unless-stopped
+    depends_on: [db]
+    environment:
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3000/}
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?задай GRAFANA_PASSWORD в .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      PG_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - grafanadata:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      # по умолчанию только локально (снаружи — через ssh -L); GRAFANA_BIND=0.0.0.0 — открыть
+      - "${GRAFANA_BIND:-127.0.0.1}:3000:3000"
+
+volumes:
+  dbdata:
+  grafanadata:

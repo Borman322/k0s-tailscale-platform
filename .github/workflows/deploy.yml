@@ -1,0 +1,62 @@
+# "Couple of clicks" deploy: Actions → deploy → Run workflow → pick a target.
+# Runs the same `make <target>` as on a laptop. Needs three repository secrets:
+#   SSH_PRIVATE_KEY  private key whose public half is in root's authorized_keys on every host
+#                    (put it into base_ssh_authorized_keys once, from a laptop)
+#   INVENTORY_INI    contents of inventory.ini
+#   SECRETS_YML      contents of vars/secrets.yml
+name: deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: What to run
+        type: choice
+        options: [app, deploy, cluster, workers, addons, status, backup]
+        default: app
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  ansible:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install Ansible
+        run: |
+          pip install "ansible-core>=2.18,<2.21"
+          ansible-galaxy collection install -r requirements.yml
+
+      - name: SSH key, inventory and secrets
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          INVENTORY_INI: ${{ secrets.INVENTORY_INI }}
+          SECRETS_YML: ${{ secrets.SECRETS_YML }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf 'Host *\n  StrictHostKeyChecking accept-new\n  IdentityFile ~/.ssh/id_ed25519\n' > ~/.ssh/config
+          printf '%s\n' "$INVENTORY_INI" > inventory.ini
+          printf '%s\n' "$SECRETS_YML" > vars/secrets.yml
+          chmod 600 vars/secrets.yml
+
+      - name: make ${{ inputs.target }}
+        run: make ${{ inputs.target }}
+        env:
+          ANSIBLE_FORCE_COLOR: "1"
+
+      - name: Keep the database dump
+        if: inputs.target == 'backup'
+        uses: actions/upload-artifact@v7
+        with:
+          name: jobmon-backup
+          path: backups/
+          retention-days: 7

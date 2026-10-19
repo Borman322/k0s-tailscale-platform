@@ -1,0 +1,19 @@
+# Кандидаты для discover.py: «Название | подсказка-slug, подсказка-slug». Подсказки нужны, когда slug не выводится из названия.
+# Строки «## Раздел» превращаются в секции companies.yml. Добавляйте свои и перезапускайте:  python discover.py
+
+## Инфраструктура и облака
+Cloudflare
+DigitalOcean | digitalocean98
+Fastly
+Tailscale
+
+## Инструменты для разработчиков
+GitLab
+Datadog
+Grafana Labs | grafanalabs
+PostHog
+Supabase
+
+## Открытый софт
+Canonical
+Mozilla

@@ -1,0 +1,10 @@
+---
+# Same provisioner as local-path, but the volume outlives its PVC: deleting a
+# claim by mistake must not delete a database.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: local-path-retain
+provisioner: rancher.io/local-path
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain

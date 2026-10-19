@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: jobmon
+  labels:
+    # Самый строгий стандарт: не root, без привилегий и лишних capabilities,
+    # seccomp по умолчанию. Под, который ему не соответствует, не создастся.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted

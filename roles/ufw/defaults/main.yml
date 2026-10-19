@@ -1,0 +1,12 @@
+---
+# Cluster traffic rides on Tailscale, so no k0s port is opened to the internet.
+ufw_ssh_port: 22                  # sshd port on the host, not a forwarded ansible_port
+ufw_ssh_from: []                  # empty = from anywhere; or a list of CIDRs
+ufw_tailscale_iface: tailscale0
+ufw_tailscale_udp_port: 41641     # direct peer connections instead of DERP relays
+# Pod and service networks (overridden from k0s settings in group_vars/all.yml):
+# pods reach the host (kubelet, hostNetwork pods) and are forwarded between nodes.
+ufw_trusted_cidrs:
+  - 10.244.0.0/16
+  - 10.96.0.0/12
+ufw_extra_rules: []               # e.g. [{port: 443, proto: tcp}]

@@ -1,0 +1,120 @@
+---
+# DNS goes first: every later step downloads something.
+- name: Create systemd-resolved drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/resolved.conf.d
+    state: directory
+    mode: '0755'
+  when: base_dns_servers | length > 0
+
+- name: Pin DNS resolvers
+  ansible.builtin.copy:
+    dest: /etc/systemd/resolved.conf.d/dns.conf
+    content: |
+      [Resolve]
+      DNS={{ base_dns_servers | join(' ') }}
+    mode: '0644'
+  when: base_dns_servers | length > 0
+  notify: Restart resolved
+
+- name: Apply DNS before downloading anything
+  ansible.builtin.meta: flush_handlers
+
+- name: Install base packages
+  ansible.builtin.apt:
+    name:
+      - curl
+      - ca-certificates
+      - gnupg
+      - ufw
+      - chrony          # clock drift breaks TLS bootstrap and etcd
+      - apparmor
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Enable time sync
+  ansible.builtin.systemd:
+    name: chrony
+    enabled: true
+    state: started
+
+- name: Load kernel modules needed by the pod network
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - overlay
+    - br_netfilter
+
+- name: Load the same modules on boot
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/k0s.conf
+    content: |
+      overlay
+      br_netfilter
+    mode: '0644'
+
+- name: Set kernel parameters for the cluster
+  ansible.posix.sysctl:
+    name: "{{ item }}"
+    value: "1"
+    sysctl_file: /etc/sysctl.d/99-k0s.conf
+    reload: true
+  loop:
+    - net.bridge.bridge-nf-call-iptables
+    - net.bridge.bridge-nf-call-ip6tables
+    - net.ipv4.ip_forward
+
+- name: Turn swap off
+  ansible.builtin.command: swapoff -a
+  when:
+    - base_disable_swap
+    - ansible_facts['swaptotal_mb'] | default(0) > 0
+
+- name: Keep swap off after reboot
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^([^#].*\sswap\s.*)$'
+    replace: '# \1'
+  when: base_disable_swap
+
+# ── SSH ──
+- name: Authorize extra SSH keys
+  ansible.posix.authorized_key:
+    user: "{{ ansible_user | default('root') }}"
+    key: "{{ item }}"
+  loop: "{{ base_ssh_authorized_keys | default([]) }}"
+
+# ── SSH hardening ──
+- name: Look up the SSH login user
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ ansible_user | default('root') }}"
+  when: base_harden_ssh
+
+- name: Check the login user has an authorized key
+  ansible.builtin.stat:
+    path: "{{ ansible_facts.getent_passwd[ansible_user | default('root')][4] }}/.ssh/authorized_keys"
+  register: _base_login_keys
+  when: base_harden_ssh
+
+- name: Refuse to harden SSH without an authorized key
+  ansible.builtin.fail:
+    msg: "No authorized_keys for {{ ansible_user | default('root') }}: disabling passwords would lock us out"
+  when:
+    - base_harden_ssh
+    - not _base_login_keys.stat.exists or _base_login_keys.stat.size == 0
+
+- name: Harden sshd
+  ansible.builtin.copy:
+    dest: /etc/ssh/sshd_config.d/99-hardening.conf
+    content: |
+      PermitRootLogin prohibit-password
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      X11Forwarding no
+      MaxAuthTries 3
+    mode: '0644'
+  when: base_harden_ssh
+  notify: Restart sshd

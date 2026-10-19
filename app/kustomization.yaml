@@ -1,0 +1,30 @@
+# База jobmon для Kubernetes: одинакова для любой установки.
+# Пароли, образ collector, домен tailnet и имя Grafana подставляет overlay,
+# который роль roles/jobmon генерирует на контроллере при `make app`.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: jobmon
+
+resources:
+  - k8s/namespace.yaml
+  - k8s/db.yaml
+  - k8s/collector.yaml
+  - k8s/grafana.yaml
+  - k8s/networkpolicy.yaml
+  - k8s/ingress.yaml
+
+configMapGenerator:
+  - name: db-init
+    files:
+      - 10-schema.sql=db/schema.sql
+  - name: grafana-datasources
+    files:
+      - postgres.yml=grafana/provisioning/datasources/postgres.yml
+  - name: grafana-dashboards
+    files:
+      - dashboards.yml=grafana/provisioning/dashboards/dashboards.yml
+      - jobs.json=grafana/provisioning/dashboards/jobs.json
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: jobmon

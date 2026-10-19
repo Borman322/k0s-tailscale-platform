@@ -1,0 +1,57 @@
+# Сборщик: один проход — один Job. Вместо цикла `sleep INTERVAL_SECONDS` из
+# compose расписание держит CronJob (образ ровно под это и сделан).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: collector
+spec:
+  schedule: "7 */6 * * *"          # каждые 6 часов, UTC; как и в compose, ~00:07/06:07/...
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 1800    # обычный проход ~20 с
+      template:
+        metadata:
+          labels:
+            app: collector
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: collector
+              # Реальное имя и тег подставляет overlay (jobmon_collector_image в
+              # group_vars/all.yml): обычно ghcr.io/<owner>/jobmon-collector:sha-<коммит>.
+              # Теги неизменяемые, поэтому IfNotPresent.
+              image: jobmon-collector
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef: {name: jobmon, key: DB_PASSWORD}
+                - name: DB_DSN
+                  value: postgresql://jobs:$(DB_PASSWORD)@db:5432/jobs
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: [ALL]}
+              resources:
+                requests: {cpu: 50m, memory: 128Mi}
+                limits: {memory: 512Mi}
+              volumeMounts:
+                - name: data              # кэш проб; единственное место записи в образе
+                  mountPath: /data
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: data
+              emptyDir: {}
+            - name: tmp
+              emptyDir: {}

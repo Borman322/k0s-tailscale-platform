@@ -1,0 +1,9 @@
+---
+# How the controller runs:
+#   enable_worker: false                    dedicated, no kubelet: not listed in `kubectl get nodes`
+#                                           (see it with `k0s status` / `kubectl get controlnodes`)
+#   enable_worker: true, no_taints: false   kubelet runs, the node is listed as control-plane, and
+#                                           the NoSchedule taint keeps workloads off it (default)
+#   enable_worker: true, no_taints: true    schedulable like any worker
+k0s_controller_enable_worker: true
+k0s_controller_no_taints: false

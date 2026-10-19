@@ -1,0 +1,12 @@
+---
+# jobmon: Postgres, the collector CronJob and Grafana behind the Tailscale operator.
+# Run: ansible-playbook app.yml   (or `make app`)
+
+- name: Deploy jobmon
+  hosts: first_controller
+  become: true
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yml
+  roles:
+    - jobmon

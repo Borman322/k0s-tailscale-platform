@@ -1,0 +1,89 @@
+# Postgres. Имя сервиса `db` — как в compose, поэтому DSN у collector и
+# источник данных Grafana не меняются. Наружу не публикуется.
+apiVersion: v1
+kind: Service
+metadata:
+  name: db
+spec:
+  selector:
+    app: db
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: db
+spec:
+  serviceName: db
+  replicas: 1
+  selector:
+    matchLabels:
+      app: db
+  template:
+    metadata:
+      labels:
+        app: db
+    spec:
+      # Сразу от пользователя postgres (uid 70 в alpine-образе), без root и gosu:
+      # каталог тома local-path создаётся с правами 0777, initdb в него пишет.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: postgres
+          image: postgres:16.15-alpine        # та же версия, что работала в compose
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          env:
+            - name: POSTGRES_USER
+              value: jobs
+            - name: POSTGRES_DB
+              value: jobs
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: jobmon, key: DB_PASSWORD}
+            # подкаталог: корень тома может быть непустым, initdb этого не любит
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgres
+              containerPort: 5432
+          readinessProbe:
+            exec:
+              command: [pg_isready, -U, jobs, -d, jobs]
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: [pg_isready, -U, jobs, -d, jobs]
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {memory: 512Mi}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            # схема применяется только при первой инициализации пустого тома
+            - name: init
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+      volumes:
+        - name: init
+          configMap:
+            name: db-init
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: local-path-retain   # том переживает удаление PVC
+        resources:
+          requests:
+            storage: 2Gi

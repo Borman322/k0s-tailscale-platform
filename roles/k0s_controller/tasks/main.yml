@@ -1,0 +1,74 @@
+---
+- name: Check inputs from earlier roles
+  ansible.builtin.assert:
+    that: tailscale_ip | default('') | length > 0
+    fail_msg: tailscale_ip is not set, run the tailscale role first
+    quiet: true
+
+- name: Create k0s config directory
+  ansible.builtin.file:
+    path: /etc/k0s
+    state: directory
+    mode: '0755'
+
+- name: Check whether the controller is already installed
+  ansible.builtin.stat:
+    path: /etc/systemd/system/k0scontroller.service
+  register: _k0s_controller_unit
+
+- name: Read the installed controller unit
+  ansible.builtin.slurp:
+    src: /etc/systemd/system/k0scontroller.service
+  register: _k0s_controller_unit_raw
+  when: _k0s_controller_unit.stat.exists
+
+# Reinstall when the unit is missing or its worker/taint mode differs from the wanted one.
+- name: Decide whether the service needs (re)installing
+  ansible.builtin.set_fact:
+    _k0s_controller_reinstall: >-
+      {{ not _k0s_controller_unit.stat.exists
+         or ('--enable-worker' in _unit) != _want_worker
+         or ('--no-taints' in _unit) != _want_no_taints }}
+  vars:
+    _unit: "{{ _k0s_controller_unit_raw.content | b64decode if _k0s_controller_unit.stat.exists else '' }}"
+    _want_worker: "{{ k0s_controller_enable_worker | bool }}"
+    _want_no_taints: "{{ k0s_controller_enable_worker | bool and k0s_controller_no_taints | bool }}"
+
+# API and etcd listen on the tailnet address; the public IP is only a SAN.
+- name: Render cluster config
+  ansible.builtin.template:
+    src: k0s.yaml.j2
+    dest: /etc/k0s/k0s.yaml
+    mode: '0644'
+  register: _k0s_config
+
+- name: Install the k0s controller service
+  ansible.builtin.command:
+    argv: >-
+      {{ ['k0s', 'install', 'controller', '--force', '--config=/etc/k0s/k0s.yaml']
+         + (['--enable-worker', '--kubelet-extra-args=' ~ k0s_kubelet_extra_args]
+            if k0s_controller_enable_worker | bool else [])
+         + (['--no-taints']
+            if k0s_controller_enable_worker | bool and k0s_controller_no_taints | bool else []) }}
+  when: _k0s_controller_reinstall
+
+- name: Restart the controller to apply a changed config or unit
+  ansible.builtin.systemd:
+    name: k0scontroller
+    state: restarted
+    daemon_reload: true
+  when: _k0s_controller_unit.stat.exists and (_k0s_config is changed or _k0s_controller_reinstall)
+
+- name: Start the k0s controller
+  ansible.builtin.systemd:
+    name: k0scontroller
+    state: started
+    enabled: true
+
+- name: Wait for the Kubernetes API
+  ansible.builtin.command: k0s kubectl get --raw=/readyz
+  register: _k0s_api
+  changed_when: false
+  until: _k0s_api.rc == 0
+  retries: 30
+  delay: 10

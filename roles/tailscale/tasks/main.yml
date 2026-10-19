@@ -1,0 +1,81 @@
+---
+# Repo layout from https://tailscale.com/download/linux: key and list are published
+# per distro release, so the same tasks cover jammy, noble and Debian.
+- name: Install Tailscale signing key
+  ansible.builtin.get_url:
+    url: "https://pkgs.tailscale.com/stable/{{ ansible_facts['distribution'] | lower }}/{{ ansible_facts['distribution_release'] }}.noarmor.gpg"
+    dest: /usr/share/keyrings/tailscale-archive-keyring.gpg
+    mode: '0644'
+
+- name: Add Tailscale apt repository
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/tailscale.list
+    content: >
+      deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg]
+      https://pkgs.tailscale.com/stable/{{ ansible_facts['distribution'] | lower }}
+      {{ ansible_facts['distribution_release'] }} main
+    mode: '0644'
+
+- name: Install Tailscale
+  ansible.builtin.apt:
+    name: "{{ 'tailscale=' ~ tailscale_version if tailscale_version else 'tailscale' }}"
+    state: present
+    update_cache: true
+
+- name: Start tailscaled
+  ansible.builtin.systemd:
+    name: tailscaled
+    enabled: true
+    state: started
+
+# tailscaled writes its state file as soon as it starts, so only BackendState
+# tells whether the node is actually logged in.
+- name: Read Tailscale state
+  ansible.builtin.command: tailscale status --json
+  register: _ts_status
+  changed_when: false
+  failed_when: false
+
+- name: Join the tailnet
+  when: (_ts_status.stdout | default('{}', true) | from_json).BackendState | default('') != 'Running'
+  block:
+    - name: Require an auth key
+      ansible.builtin.assert:
+        that: tailscale_authkey | length > 0
+        fail_msg: tailscale_authkey is empty, put it into vars/secrets.yml
+        quiet: true
+
+    # Passing the key as file: keeps it out of the process list and out of the
+    # task log, so the login step itself does not need no_log.
+    - name: Stage the auth key
+      ansible.builtin.copy:
+        content: "{{ tailscale_authkey }}"
+        dest: /run/tailscale-authkey
+        mode: '0600'
+      no_log: true
+
+    - name: Log in to the tailnet
+      ansible.builtin.command:
+        argv: >-
+          {{ ['tailscale', 'up', '--reset',
+              '--auth-key=file:/run/tailscale-authkey',
+              '--hostname=' ~ tailscale_hostname]
+             + (['--advertise-tags=' ~ tailscale_tags | join(',')] if tailscale_tags else [])
+             + tailscale_up_extra_args }}
+  always:
+    - name: Remove the staged auth key
+      ansible.builtin.file:
+        path: /run/tailscale-authkey
+        state: absent
+
+- name: Wait for a tailnet IPv4 address
+  ansible.builtin.command: tailscale ip -4
+  register: _ts_ip
+  changed_when: false
+  until: _ts_ip.rc == 0 and _ts_ip.stdout | trim | length > 0
+  retries: 12
+  delay: 5
+
+- name: Expose the tailnet address to later roles
+  ansible.builtin.set_fact:
+    tailscale_ip: "{{ _ts_ip.stdout_lines[0] | trim }}"

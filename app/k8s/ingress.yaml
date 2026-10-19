@@ -1,0 +1,18 @@
+# Grafana в tailnet по HTTPS: https://<jobmon_grafana_host>.<tailnet_domain>
+# Прокси поднимает Tailscale operator (namespace tailscale), он же выпускает
+# сертификат Let's Encrypt. Снаружи tailnet адрес недоступен.
+# Имя хоста `grafana` overlay заменяет на jobmon_grafana_host.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: grafana
+spec:
+  ingressClassName: tailscale
+  defaultBackend:
+    service:
+      name: grafana
+      port:
+        name: http
+  tls:
+    - hosts:
+        - grafana

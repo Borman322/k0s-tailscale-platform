@@ -1,0 +1,3 @@
+---
+jobmon_deploy_dir: /root/jobmon-deploy
+jobmon_grafana_host: grafana

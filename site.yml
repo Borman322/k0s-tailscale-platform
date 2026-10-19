@@ -1,0 +1,15 @@
+---
+# Everything, in order. Safe to rerun: every step leaves alone what is already in place.
+# Run: ansible-playbook site.yml   (or `make deploy`)
+
+- name: Control plane
+  ansible.builtin.import_playbook: controller.yml
+
+- name: Workers
+  ansible.builtin.import_playbook: workers.yml
+
+- name: Cluster add-ons
+  ansible.builtin.import_playbook: addons.yml
+
+- name: jobmon
+  ansible.builtin.import_playbook: app.yml

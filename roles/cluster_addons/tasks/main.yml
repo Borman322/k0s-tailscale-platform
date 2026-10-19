@@ -1,0 +1,99 @@
+---
+# Runs on the controller: kubectl only works there (the API listens on the tailnet IP).
+
+- name: Create the add-on directory
+  ansible.builtin.file:
+    path: "{{ cluster_addons_dir }}"
+    state: directory
+    mode: '0700'
+
+# ── storage ──
+- name: Copy the storage manifests
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/addons/{{ item }}"
+    dest: "{{ cluster_addons_dir }}/{{ item }}"
+    mode: '0644'
+  loop:
+    - local-path-storage.yaml
+    - local-path-retain.yaml
+
+# One file per apply: concatenated without `---`, the last document of one file
+# merges into the first one of the next.
+- name: Install local-path-provisioner and its StorageClasses
+  ansible.builtin.command: k0s kubectl apply -f {{ cluster_addons_dir }}/{{ item }}
+  loop:
+    - local-path-storage.yaml
+    - local-path-retain.yaml
+  register: _addons_storage
+  changed_when: _addons_storage.stdout_lines | reject('search', ' unchanged$') | list | length > 0
+
+- name: Make local-path the default StorageClass
+  ansible.builtin.command:
+    argv:
+      - k0s
+      - kubectl
+      - patch
+      - storageclass
+      - local-path
+      - -p
+      - '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+  register: _addons_default_sc
+  changed_when: "'no change' not in _addons_default_sc.stdout"
+
+# ── Tailscale operator ──
+- name: Install the Tailscale operator
+  when: tailscale_operator_oauth_client_id | default('') | length > 0
+  block:
+    # Rendered without OAuth values, so the manifest holds no secret; the
+    # operator reads the client from the operator-oauth Secret created below.
+    - name: Render the operator chart
+      ansible.builtin.command:
+        argv:
+          - helm
+          - template
+          - tailscale-operator
+          - tailscale-operator
+          - --repo
+          - https://pkgs.tailscale.com/helmcharts
+          - --version
+          - "{{ tailscale_operator_version }}"
+          - --namespace
+          - tailscale
+      delegate_to: localhost
+      become: false
+      register: _addons_operator_manifest
+      changed_when: false
+
+    - name: Create the tailscale namespace
+      ansible.builtin.shell: >-
+        set -o pipefail;
+        k0s kubectl create namespace tailscale --dry-run=client -o yaml | k0s kubectl apply -f -
+      args:
+        executable: /bin/bash
+      register: _addons_ts_ns
+      changed_when: "'unchanged' not in _addons_ts_ns.stdout"
+
+    - name: Store the OAuth client
+      ansible.builtin.shell: >-
+        set -o pipefail;
+        k0s kubectl -n tailscale create secret generic operator-oauth
+        --from-literal=client_id='{{ tailscale_operator_oauth_client_id }}'
+        --from-literal=client_secret='{{ tailscale_operator_oauth_client_secret }}'
+        --dry-run=client -o yaml | k0s kubectl apply -f -
+      args:
+        executable: /bin/bash
+      register: _addons_ts_secret
+      changed_when: "'unchanged' not in _addons_ts_secret.stdout"
+      no_log: true
+
+    # Server-side: the CRDs are too big for the client-side last-applied annotation.
+    # SSA reports every object as applied, so the step never claims a change.
+    - name: Apply the operator
+      ansible.builtin.command:
+        cmd: k0s kubectl apply --server-side -f -
+        stdin: "{{ _addons_operator_manifest.stdout }}"
+      changed_when: false
+
+    - name: Wait for the operator
+      ansible.builtin.command: k0s kubectl -n tailscale rollout status deployment/operator --timeout=300s
+      changed_when: false
